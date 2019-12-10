@@ -1,4 +1,4 @@
-package com.lyj.bluetoothtool;
+package com.Raven_L.bluetoothtool;
 
 import androidx.appcompat.app.AppCompatActivity;
 
@@ -12,8 +12,6 @@ import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.CheckBox;
 import android.widget.ListView;
-
-import com.example.bluetoothtool.BluetoothTool;
 
 import java.util.ArrayList;
 import java.util.List;

@@ -1,4 +1,4 @@
-package com.lyj.bluetoothtool;
+package com.Raven_L.bluetoothtool;
 
 import android.bluetooth.BluetoothDevice;
 import android.bluetooth.BluetoothGatt;
@@ -13,8 +13,6 @@ import android.widget.Button;
 import android.widget.EditText;
 import android.widget.TextView;
 import android.widget.Toast;
-
-import com.example.bluetoothtool.BluetoothTool;
 
 import java.text.SimpleDateFormat;
 import java.util.Date;
