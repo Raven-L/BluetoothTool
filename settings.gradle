@@ -1,0 +1,2 @@
+include ':app', ':bluetoothtool'
+rootProject.name='BlueToothTool'
