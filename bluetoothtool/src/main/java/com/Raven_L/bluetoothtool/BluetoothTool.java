@@ -25,7 +25,6 @@ import android.os.Build;
 import android.os.Handler;
 import android.util.Log;
 
-
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -66,6 +65,7 @@ public class BluetoothTool {
     private DeviceStateListener deviceStateListener;
     //classic BT
     public UUID CLassic_UUID_SerialPortServiceClass  = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB");
+
     public UUID BLE_UUID_ClientCharacteristicConfiguration  = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb");
     private ConnectedThread connectedThread;//数据收发进程
     private int maxTransimitSize,maxReceiveSize;
@@ -318,6 +318,7 @@ public class BluetoothTool {
     }
 
     public boolean connectClassicDevice(BluetoothDevice device,UUID uuid,DeviceStateListener Listener){
+
         BluetoothSocket socket;
         InputStream inputStream;
         OutputStream outputStream;
@@ -670,10 +671,10 @@ public class BluetoothTool {
 
     public byte[] readFromDevice(int timeout,TimeUnit timeUnit ) throws TimeoutException{
         if (BLEMode){
-            if (BLECharacter==null){
+            if (BLECharacter==null && deviceStateListener!=null ){
                 deviceStateListener.onDisconnected();
                 }
-        }else if (connectedThread==null){
+        }else if (connectedThread==null && deviceStateListener!=null){
             deviceStateListener.onDisconnected();
             }
 
@@ -691,7 +692,7 @@ public class BluetoothTool {
         });
         try {
             readTask.run();
-            result= readTask.get(5, timeUnit);
+            result= readTask.get(timeout, timeUnit);
             readTask.cancel(true);
             return result;
         } catch (ExecutionException e) {
@@ -713,11 +714,11 @@ public class BluetoothTool {
         //判断是否已连接
         if (BLEMode){
             if (BLECharacter==null){
-                deviceStateListener.onDisconnected();
+                if (deviceStateListener!=null)deviceStateListener.onDisconnected();
                 return false;
             }
         }else if (connectedThread==null){
-            deviceStateListener.onDisconnected();
+            if (deviceStateListener!=null)deviceStateListener.onDisconnected();
             return false;
         }
 
@@ -740,7 +741,7 @@ public class BluetoothTool {
 
 //断开连接
 
-    public boolean disconnecDevice(boolean isTriggeredCallback){
+    public boolean disconnectDevice(boolean isTriggeredCallback){
         if (BLEMode){
             BLEGatt.disconnect();
             if (isTriggeredCallback)deviceStateListener.onDisconnected();
