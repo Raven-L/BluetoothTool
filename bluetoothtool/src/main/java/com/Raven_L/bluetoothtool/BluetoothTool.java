@@ -537,16 +537,16 @@ public class BluetoothTool {
         Log.e(TAG, "onServicesDiscovered:回调设定完成 " );
     }
 
-    public String getBLEDevicecAllServiceAndCharaUuid(BluetoothGatt BLEGatt,Boolean showINLoge){
-        List<BluetoothGattService> bluetoothGattServices= BLEGatt.getServices();
-        StringBuilder Allstring=new StringBuilder();
-        for (BluetoothGattService bluetoothGattService:bluetoothGattServices){
-            StringBuilder string=new StringBuilder();
-            List<BluetoothGattCharacteristic> characteristics=bluetoothGattService.getCharacteristics();
-            string.append("*----------------------------------------------------*\nServicesUUID:"+bluetoothGattService.getUuid());
+    public String getBLEDeviceAllServiceAndCharaUuid(BluetoothGatt BLEGatt, Boolean showINLoge) {
+        List<BluetoothGattService> bluetoothGattServices = BLEGatt.getServices();
+        StringBuilder AllString = new StringBuilder();
+        for (BluetoothGattService bluetoothGattService : bluetoothGattServices) {
+            StringBuilder string = new StringBuilder();
+            List<BluetoothGattCharacteristic> characteristics = bluetoothGattService.getCharacteristics();
+            string.append("*----------------------------------------------------*\nServicesUUID:" + bluetoothGattService.getUuid());
 
-            for (BluetoothGattCharacteristic characteristic:characteristics){
-                string.append("\n\tCharacteristicUUID:"+characteristic.getUuid()+"\n\t\tProperties:");
+            for (BluetoothGattCharacteristic characteristic : characteristics) {
+                string.append("\n\tCharacteristicUUID:" + characteristic.getUuid() + "\n\t\tProperties:");
 
                 int charaProp = characteristic.getProperties();
                 if ((charaProp & BluetoothGattCharacteristic.PROPERTY_BROADCAST) > 0) {
@@ -633,10 +633,10 @@ public class BluetoothTool {
 
             }
             string.append("\n*----------------------------------------------------*");
-            Allstring.append(string.toString());
+            AllString.append(string.toString());
             if (showINLoge)Log.e(TAG, string.toString() );
         }
-        return Allstring.toString();
+        return AllString.toString();
     }
 
     public boolean isConnected(){
