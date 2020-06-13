@@ -31,6 +31,7 @@ import java.io.OutputStream;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
@@ -98,43 +99,21 @@ public class BluetoothTool {
             @Override
             public void onReceive(Context context, Intent intent) {
                 //确定状态广播
-                if (!intent.getAction().equals(BluetoothAdapter.ACTION_STATE_CHANGED)){
-                    Log.e(TAG, "onReceive: 广播不是状态" );return;}
+                if (!Objects.equals(intent.getAction(), BluetoothAdapter.ACTION_STATE_CHANGED)) {
+                    return;
+                }
                 //判断状态
                 switch (intent.getIntExtra(BluetoothAdapter.EXTRA_STATE, 0)) {
-                    /*
-                    case BluetoothAdapter.STATE_CONNECTED:
-                        Log.e(TAG, "onReceive: 设备已连接" );
-                        btStateListener.onConnected();
-                        break;
-                    case BluetoothAdapter.STATE_CONNECTING:
-                        Log.e(TAG, "onReceive: 设备正在连接" );
-                        btStateListener.onConnecting();
-                        break;
-                    case BluetoothAdapter.STATE_DISCONNECTED:
-                        Log.e(TAG, "onReceive: 设备已断开连接" );
-                        btStateListener.onDisconnected();
-                        break;
-                    case BluetoothAdapter.STATE_DISCONNECTING:
-                        Log.e(TAG, "onReceive: 设备连接正在断开" );
-                        btStateListener.onDisconnecting();
-                        break;
-                        */
-
                     case BluetoothAdapter.STATE_OFF:
-                        Log.e(TAG, "onReceive: 蓝牙关闭" );
                         btStateListener.onBTOff();
                         break;
                     case BluetoothAdapter.STATE_ON:
-                        Log.e(TAG, "onReceive: 蓝牙打开" );
                         btStateListener.onBTOn();
                         break;
                     case BluetoothAdapter.STATE_TURNING_OFF:
-                        Log.e(TAG, "onReceive: 蓝牙正在关闭" );
                         btStateListener.onBTTurningOFF();
                         break;
                     case BluetoothAdapter.STATE_TURNING_ON:
-                        Log.e(TAG, "onReceive: 蓝牙正在打开" );
                         btStateListener.onBTTurningON();
                         break;
                 }
@@ -219,7 +198,7 @@ public class BluetoothTool {
                 @Override
                 public void onReceive(Context context, Intent intent) {
 
-                    switch (intent.getAction()) {
+                    switch (Objects.requireNonNull(intent.getAction())) {
                         case BluetoothDevice.ACTION_FOUND: {
                             BluetoothDevice device = intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE);
                             deviceList.add(device);
@@ -281,7 +260,6 @@ public class BluetoothTool {
     }
 
     public void stopScanDevices() {
-        Log.e(TAG, "stopScanDevices: 进入停止" );
         if (BLEMode) {
             //测试,不知是否报错
 
@@ -442,25 +420,18 @@ public class BluetoothTool {
             public void onConnectionStateChange(BluetoothGatt gatt, int status,
                                                 int newState) {
                 super.onConnectionStateChange(gatt, status, newState);
-                Log.e(TAG, "onConnectionStateChange");
                 switch (newState) {
                     case BluetoothProfile.STATE_CONNECTED:
-                        Log.e(TAG, "STATE_CONNECTED");
                         if (ServiceUUID==null ||CharacterUUID==null ||DescriptorUUID==null)return;//没有设置就跳过
                         gatt.discoverServices(); //搜索连接设备所支持的service
 
                         break;
                     case BluetoothProfile.STATE_DISCONNECTED:
-                        Log.e(TAG, "STATE_DISCONNECTED");
                         Listener.onDisconnected();
                         break;
                     case BluetoothProfile.STATE_CONNECTING:
-
-                        Log.e(TAG, "STATE_CONNECTING");
                         break;
                     case BluetoothProfile.STATE_DISCONNECTING:
-
-                        Log.e(TAG, "STATE_DISCONNECTING");
                         break;
                 }
 
@@ -469,7 +440,7 @@ public class BluetoothTool {
             @Override
             public void onServicesDiscovered(BluetoothGatt gatt, int status) {
                 super.onServicesDiscovered(gatt, status);
-                Log.e(TAG, "onServicesDiscovered");
+
                 if (status == BluetoothGatt.GATT_SUCCESS) {
                 if (ServiceUUID==null && CharacterUUID==null && DescriptorUUID!=null)
                 {
@@ -495,14 +466,12 @@ public class BluetoothTool {
 
             @Override
             public void onCharacteristicRead(BluetoothGatt gatt, BluetoothGattCharacteristic characteristic, int status) {
-                Log.e(TAG, "onCharacteristicRead");
                 super.onCharacteristicRead(gatt, characteristic, status);
 
             }
 
             @Override
             public void onCharacteristicWrite(BluetoothGatt gatt, BluetoothGattCharacteristic characteristic, int status) {
-                Log.e(TAG, "onCharacteristicWrite");
                 super.onCharacteristicWrite(gatt, characteristic, status);
 
             }
@@ -533,8 +502,6 @@ public class BluetoothTool {
         BluetoothGattDescriptor descriptor = BLECharacter.getDescriptor(DescriptorUUID);
         descriptor.setValue(BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE);
         BLEGatt.writeDescriptor(descriptor);
-
-        Log.e(TAG, "onServicesDiscovered:回调设定完成 " );
     }
 
     public String getBLEDeviceAllServiceAndCharaUuid(BluetoothGatt BLEGatt, Boolean showINLoge) {
@@ -543,10 +510,10 @@ public class BluetoothTool {
         for (BluetoothGattService bluetoothGattService : bluetoothGattServices) {
             StringBuilder string = new StringBuilder();
             List<BluetoothGattCharacteristic> characteristics = bluetoothGattService.getCharacteristics();
-            string.append("*----------------------------------------------------*\nServicesUUID:" + bluetoothGattService.getUuid());
+            string.append("*----------------------------------------------------*\nServicesUUID:").append(bluetoothGattService.getUuid());
 
             for (BluetoothGattCharacteristic characteristic : characteristics) {
-                string.append("\n\tCharacteristicUUID:" + characteristic.getUuid() + "\n\t\tProperties:");
+                string.append("\n\tCharacteristicUUID:").append(characteristic.getUuid()).append("\n\t\tProperties:");
 
                 int charaProp = characteristic.getProperties();
                 if ((charaProp & BluetoothGattCharacteristic.PROPERTY_BROADCAST) > 0) {
@@ -602,7 +569,7 @@ public class BluetoothTool {
                 }
 
                 for (BluetoothGattDescriptor Descriptor:characteristic.getDescriptors()) {
-                    string.append("\n\t\t\tDescriptorUUID:"+Descriptor.getUuid()+"\n\t\t\t\tPermissions:");
+                    string.append("\n\t\t\tDescriptorUUID:").append(Descriptor.getUuid()).append("\n\t\t\t\tPermissions:");
 
                     int DescriptorProp = Descriptor.getPermissions();
                     if ((DescriptorProp & BluetoothGattDescriptor.PERMISSION_READ) > 0) {
@@ -692,15 +659,11 @@ public class BluetoothTool {
         });
         try {
             readTask.run();
-            result= readTask.get(timeout, timeUnit);
+            result = readTask.get(timeout, timeUnit);
             readTask.cancel(true);
             return result;
-        } catch (ExecutionException e) {
+        } catch (ExecutionException | InterruptedException e) {
             e.printStackTrace();
-            Log.e(TAG, "read: ExecutionException" );
-        } catch (InterruptedException e) {
-            e.printStackTrace();
-            Log.e(TAG, "read: 中断" );
         }
         return null;
 
