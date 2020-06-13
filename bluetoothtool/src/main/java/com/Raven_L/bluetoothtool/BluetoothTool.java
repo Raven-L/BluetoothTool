@@ -335,6 +335,7 @@ public class BluetoothTool {
         OutputStream outputStream;
         @Override
         public void run(){
+            deviceStateListener.onConnected();
             while (isConnect) {
                 try {
                     int nowAvailable = inputStream.available();
@@ -357,7 +358,6 @@ public class BluetoothTool {
             this.inputStream = inputStream;
             this.outputStream = outputStream;
             isConnect = true;
-            deviceStateListener.onConnected();
 
 
 
