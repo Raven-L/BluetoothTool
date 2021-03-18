@@ -25,11 +25,12 @@ import android.os.Build;
 import android.os.Handler;
 import android.util.Log;
 
+import androidx.annotation.NonNull;
+
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
@@ -65,37 +66,43 @@ public class BluetoothTool {
     //连接
     private DeviceStateListener deviceStateListener;
     //classic BT
-    public UUID CLassic_UUID_SerialPortServiceClass  = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB");
+    public UUID CLassic_UUID_SerialPortServiceClass = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB");
 
-    public UUID BLE_UUID_ClientCharacteristicConfiguration  = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb");
+    public UUID BLE_UUID_ClientCharacteristicConfiguration = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb");
     private ConnectedThread connectedThread;//数据收发进程
-    private int maxTransimitSize,maxReceiveSize;
-    private  FutureTask<byte[]> readTask;
-    private boolean isConnect=false;
-    private int lastAvailable=0;
+    private int maxTransimitSize, maxReceiveSize;
+    private FutureTask<byte[]> readTask;
+    private boolean isConnect = false;
+    private int lastAvailable = 0;
 
     //BLE
     private BluetoothGatt BLEGatt;
-    private BluetoothGattCallback BLEGattCallback;
-    private BluetoothGattService BLEService;
-    private BluetoothGattCharacteristic BLECharacter;
-    private boolean isCharacteristicChanged=true;
+    private boolean isBLEConnect = false;
+    private onCharacteristicListener onCharacteristicListener;
 
-    public BluetoothTool(Context context, Boolean isBLEMode){
-        this.mContext=context;
-        BLEMode=isBLEMode;
-        mBtAdapter= BluetoothAdapter.getDefaultAdapter();
-        scanningFilter= new IntentFilter(BluetoothDevice.ACTION_FOUND);
+    //交互
+    private onClassicRecvListener classicRecvListener;
+
+
+    public BluetoothTool(Context context, Boolean isBLEMode) {
+        this.mContext = context;
+        BLEMode = isBLEMode;
+        mBtAdapter = BluetoothAdapter.getDefaultAdapter();
+        scanningFilter = new IntentFilter(BluetoothDevice.ACTION_FOUND);
         scanningFilter.addAction(BluetoothAdapter.ACTION_DISCOVERY_STARTED);
         scanningFilter.addAction(BluetoothAdapter.ACTION_DISCOVERY_FINISHED);
 
 
-
-
     }
 
-    public void setBTStateListener(BTStateListener listener){
-        bluetoothStateReceiver=new BroadcastReceiver() {
+    private static byte[] subBytes(byte[] src, int begin, int count) {//数组截取
+        byte[] bs = new byte[count];
+        System.arraycopy(src, begin, bs, 0, count);
+        return bs;
+    }
+
+    public void setBTStateListener(BTStateListener listener) {
+        bluetoothStateReceiver = new BroadcastReceiver() {
             @Override
             public void onReceive(Context context, Intent intent) {
                 //确定状态广播
@@ -125,50 +132,24 @@ public class BluetoothTool {
 
     }
 
-    public interface BTStateListener{
-        void onBTOff(); // 蓝牙断开
-        void onBTOn(); // 蓝牙打开
-        void onBTTurningOFF(); // 蓝牙正在断开
-        void onBTTurningON(); // 蓝牙正在打开
+    //申请打开蓝牙
+    public void applyForEnableBT(Activity activity, int REQUEST_PERMISSION_CODE) {
+        Intent enableBtIntent = new Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE);
+        activity.startActivityForResult(enableBtIntent, REQUEST_PERMISSION_CODE);
     }
 
-    //申请打开蓝牙
-    public void applyForEnableBT(Activity activity,int REQUEST_PERMISSION_CODE){
-        Intent enableBtIntent = new Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE);
-        activity.startActivityForResult(enableBtIntent,REQUEST_PERMISSION_CODE);
-    }
-    /**
-     * 申请BLE扫描所需位置权限,要在外重写 onRequestPermissionsResult
-     */
-    public void applyForBLEPermission(Activity activity,int REQUEST_PERMISSION_CODE) {
-        if (Build.VERSION.SDK_INT > Build.VERSION_CODES.M) {
-            int permissionCheck = 0;
-            permissionCheck = activity.checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION);
-            permissionCheck += activity.checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION);
-            if (permissionCheck != PackageManager.PERMISSION_GRANTED) {
-                activity.requestPermissions( // 请求授权
-                        new String[]{Manifest.permission.ACCESS_FINE_LOCATION,
-                                Manifest.permission.ACCESS_COARSE_LOCATION},
-                        REQUEST_PERMISSION_CODE);// 自定义常量,任意整型
-            } else {
-                // 已经获得权限
-            }
-        }
+    public BluetoothAdapter getBluetoothAdapter() {
+        return mBtAdapter;
     }
 
 //扫描
 
-    public BluetoothAdapter getBluetoothAdapter(){
-        return mBtAdapter;
-    }
-
-
-    public void scanDevices(int lastingTime, TimeUnit timeUnit, final BTScanningListener listener){
+    public void scanDevices(int lastingTime, TimeUnit timeUnit, final BTScanningListener listener) {
         deviceList.clear();//清空上一次结果
-        btScanningListener=listener;
-        if (BLEMode){
-            BLEScanner=mBtAdapter.getBluetoothLeScanner();
-            BLEScanCallback=new ScanCallback() {
+        btScanningListener = listener;
+        if (BLEMode) {
+            BLEScanner = mBtAdapter.getBluetoothLeScanner();
+            BLEScanCallback = new ScanCallback() {
                 @Override
                 public void onScanResult(int callbackType, ScanResult result) {
                     super.onScanResult(callbackType, result);
@@ -224,16 +205,36 @@ public class BluetoothTool {
             mBtAdapter.startDiscovery();//开始扫描
         }
 
-        stopScanningAfterSetting(lastingTime,timeUnit);
+        stopScanningAfterSetting(lastingTime, timeUnit);
 
     }
 
-    public void scanDevices(int lastingTime, TimeUnit timeUnit, final BTScanningListener listener, List<ScanFilter> filters, ScanSettings scanSettings){
+    /**
+     * 申请BLE扫描所需位置权限,要在外重写 onRequestPermissionsResult
+     *
+     * @param activity
+     * @param REQUEST_PERMISSION_CODE onRequestPermissionsResult中的标识码
+     */
+    public void applyForBLEPermission(Activity activity, int REQUEST_PERMISSION_CODE) {
+        if (Build.VERSION.SDK_INT > Build.VERSION_CODES.M) {
+            int permissionCheck;
+            permissionCheck = activity.checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION);
+            permissionCheck += activity.checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION);
+            if (permissionCheck != PackageManager.PERMISSION_GRANTED) {
+                activity.requestPermissions( // 请求授权
+                        new String[]{Manifest.permission.ACCESS_FINE_LOCATION,
+                                Manifest.permission.ACCESS_COARSE_LOCATION},
+                        REQUEST_PERMISSION_CODE);// 自定义常量,任意整型
+            }
+        }
+    }
+
+    public void scanDevices(int lastingTime, TimeUnit timeUnit, final BTScanningListener listener, List<ScanFilter> filters, ScanSettings scanSettings) {
         deviceList.clear();//清空上一次结果
-        btScanningListener=listener;
-        if (BLEMode){
-            BLEScanner=mBtAdapter.getBluetoothLeScanner();
-            BLEScanCallback=new ScanCallback() {
+        btScanningListener = listener;
+        if (BLEMode) {
+            BLEScanner = mBtAdapter.getBluetoothLeScanner();
+            BLEScanCallback = new ScanCallback() {
                 @Override
                 public void onScanResult(int callbackType, ScanResult result) {
                     super.onScanResult(callbackType, result);
@@ -283,138 +284,86 @@ public class BluetoothTool {
 
     }
 
-
-
-
-    //连接
-    //Classic BT
-    public interface DeviceStateListener{
-        void onConnected(); // 设备已连接
-        void onConnecting(); // 设备正在连接
-        void onDisconnected(); // 设备连接断开
-        void onReceivedData(int dataLength);//接收到数据
+    public void setClassicRecvListener(onClassicRecvListener classicRecvListener) {
+        this.classicRecvListener = classicRecvListener;
     }
 
-    public boolean connectClassicDevice(BluetoothDevice device,UUID uuid,DeviceStateListener Listener){
-
+    public boolean connectClassicDevice(BluetoothDevice device, UUID uuid, DeviceStateListener Listener) throws UnsupportedOperationException {
+        if (BLEMode) {
+            throw new UnsupportedOperationException();
+        }
         BluetoothSocket socket;
         InputStream inputStream;
         OutputStream outputStream;
-        deviceStateListener=Listener;
+        deviceStateListener = Listener;
         deviceStateListener.onConnecting();
 
         try {
-            socket=device.createRfcommSocketToServiceRecord(uuid);//创建端口
+            socket = device.createRfcommSocketToServiceRecord(uuid);//创建端口
             socket.connect();//连接端口
-            inputStream=socket.getInputStream();
-            outputStream=socket.getOutputStream();
-            maxTransimitSize=socket.getMaxTransmitPacketSize();
-            maxReceiveSize=socket.getMaxReceivePacketSize();
+            inputStream = socket.getInputStream();
+            outputStream = socket.getOutputStream();
+            maxTransimitSize = socket.getMaxTransmitPacketSize();
+            maxReceiveSize = socket.getMaxReceivePacketSize();
         } catch (IOException e) {
             e.printStackTrace();
             return false;
         }
-        connectedThread=new ConnectedThread(socket,inputStream,outputStream);
+        connectedThread = new ConnectedThread(socket, inputStream, outputStream);
         connectedThread.start();
         return true;
 
     }
 
-
-
-
-    private static byte[] subBytes(byte[] src, int begin, int count) {//数组截取
-        byte[] bs = new byte[count];
-        System.arraycopy(src, begin, bs, 0, count);
-        return bs;
-    }
-
-    private class ConnectedThread extends Thread {//收发数据线程
-        BluetoothSocket socket;
-        InputStream inputStream;
-        OutputStream outputStream;
-        @Override
-        public void run(){
-            deviceStateListener.onConnected();
-            while (isConnect) {
-                try {
-                    int nowAvailable = inputStream.available();
-                    if (nowAvailable == lastAvailable) continue;//相同则跳过
-                    if (nowAvailable > 0 && nowAvailable - lastAvailable > 1) {//大于1是为了等到全部都收到触发回调
-                        deviceStateListener.onReceivedData(nowAvailable);//大于0说明收到数据
-                    }
-                    lastAvailable = nowAvailable;
-
-                } catch (IOException e) {
-                    e.printStackTrace();
-                    isConnect = false;
-                    deviceStateListener.onDisconnected();
-                }
-
-            }
-        }
-        private ConnectedThread(BluetoothSocket socket, InputStream inputStream, OutputStream outputStream) {
-            this.socket = socket;
-            this.inputStream = inputStream;
-            this.outputStream = outputStream;
-            isConnect = true;
-
-
-
-
-            }
-
-        public byte[] read() {
-            byte[] buff = new byte[maxReceiveSize];
-            int bytes;
-            try {
-                bytes = inputStream.read(buff);
-                return subBytes(buff, 0, bytes);
-            } catch (IOException e) {
-                e.printStackTrace();
-                isConnect=false;
-                deviceStateListener.onDisconnected();
-                return null;
-            }
-
+    public byte[] readFromClassicDevice(int timeout, TimeUnit timeUnit) throws TimeoutException, UnsupportedOperationException {
+        if (BLEMode) {
+            throw new UnsupportedOperationException();
+        } else if (connectedThread == null && deviceStateListener != null) {
+            deviceStateListener.onDisconnected();
+            return null;
         }
 
-
-        public boolean write(byte[] bytes) {
-            try {
-                outputStream.write(bytes);
-            } catch (IOException e) {
-                e.printStackTrace();
-                isConnect=false;
-                deviceStateListener.onDisconnected();
-                return false;
+        byte[] result;
+        readTask = new FutureTask<byte[]>(new Callable() {
+            @Override
+            public byte[] call() {
+                return connectedThread.read();
             }
-            return true;
+        });
+        try {
+            readTask.run();
+            result = readTask.get(timeout, timeUnit);
+            readTask.cancel(true);
+            return result;
+        } catch (ExecutionException | InterruptedException e) {
+            e.printStackTrace();
         }
-
-        public boolean cancel(boolean isTriggeredCallback) {
-            try {
-                inputStream.close();
-                outputStream.close();
-                isConnect=false;
-                if (isTriggeredCallback)deviceStateListener.onDisconnected();
-                socket.close();
-                return true;
-            } catch (IOException e) {
-                e.printStackTrace();
-                return false;
-            }
-        }
-
+        return null;
 
     }
 
+    public boolean writeToClassicDevice(byte[] bytes) throws UnsupportedOperationException {
+        //判断是否已连接
+        if (BLEMode) {
+            throw new UnsupportedOperationException();
+        } else if (connectedThread == null) {
+            if (deviceStateListener != null) deviceStateListener.onDisconnected();
+            return false;
+        }
+        return connectedThread.write(bytes);
+    }
 
-    //BLE
-    public BluetoothGatt connectBLEDevice(final BluetoothDevice device, Boolean autoConnect, final DeviceStateListener Listener, final UUID ServiceUUID, final UUID CharacterUUID, final UUID DescriptorUUID){
-        if (device==null)return null;
-        deviceStateListener=Listener;
-        BLEGattCallback = new BluetoothGattCallback() {
+    public void setCharacteristicListener(BluetoothTool.onCharacteristicListener onCharacteristicListener) throws UnsupportedOperationException {
+        if (!BLEMode) throw new UnsupportedOperationException();
+        this.onCharacteristicListener = onCharacteristicListener;
+    }
+
+    public BluetoothGatt connectBLEDevice(final BluetoothDevice device, Boolean autoConnect, final DeviceStateListener Listener) throws UnsupportedOperationException {
+        if (!BLEMode) throw new UnsupportedOperationException();
+        if (device == null) return null;
+        deviceStateListener = Listener;
+        //搜索连接设备所支持的service
+        BluetoothGattCallback BLEGattCallback = new BluetoothGattCallback() {
 
             @Override
             public void onConnectionStateChange(BluetoothGatt gatt, int status,
@@ -422,11 +371,12 @@ public class BluetoothTool {
                 super.onConnectionStateChange(gatt, status, newState);
                 switch (newState) {
                     case BluetoothProfile.STATE_CONNECTED:
-                        if (ServiceUUID==null ||CharacterUUID==null ||DescriptorUUID==null)return;//没有设置就跳过
+
                         gatt.discoverServices(); //搜索连接设备所支持的service
 
                         break;
                     case BluetoothProfile.STATE_DISCONNECTED:
+                        isBLEConnect = false;
                         Listener.onDisconnected();
                         break;
                     case BluetoothProfile.STATE_CONNECTING:
@@ -440,68 +390,87 @@ public class BluetoothTool {
             @Override
             public void onServicesDiscovered(BluetoothGatt gatt, int status) {
                 super.onServicesDiscovered(gatt, status);
+                isBLEConnect = true;
+                deviceStateListener.onConnected();
 
-                if (status == BluetoothGatt.GATT_SUCCESS) {
-                if (ServiceUUID==null && CharacterUUID==null && DescriptorUUID!=null)
-                {
-                    outside:
-                    for (BluetoothGattService Service:gatt.getServices()){
-                        for (BluetoothGattCharacteristic Chara:Service.getCharacteristics())
-                            for (BluetoothGattDescriptor description:Chara.getDescriptors()){
-                                if (description.getUuid().equals(DescriptorUUID)){
-                                    BLESetCharacteristicNotification(gatt,Service.getUuid(),Chara.getUuid(),description.getUuid());
-                                    break outside;
-                                }
-                            }
-                    }
-
-                }else {
-                    BLESetCharacteristicNotification(gatt,ServiceUUID,CharacterUUID,DescriptorUUID);
-                }
-
-                    deviceStateListener.onConnected();
-                }
 
             }
 
             @Override
             public void onCharacteristicRead(BluetoothGatt gatt, BluetoothGattCharacteristic characteristic, int status) {
                 super.onCharacteristicRead(gatt, characteristic, status);
+                onCharacteristicListener.onCharacteristicRead(gatt, characteristic, status);
 
             }
 
             @Override
             public void onCharacteristicWrite(BluetoothGatt gatt, BluetoothGattCharacteristic characteristic, int status) {
                 super.onCharacteristicWrite(gatt, characteristic, status);
+                onCharacteristicListener.onCharacteristicWrite(gatt, characteristic, status);
 
             }
 
             @Override
             public void onCharacteristicChanged(BluetoothGatt gatt, BluetoothGattCharacteristic characteristic) {
                 super.onCharacteristicChanged(gatt, characteristic);
-//            这里是可以监听到设备自身或者手机改变设备的一些数据修改通知
-                isCharacteristicChanged=true;
-                deviceStateListener.onReceivedData(characteristic.getValue().length);
-
-
+                onCharacteristicListener.onCharacteristicChanged(gatt, characteristic);
             }
         };
 
-        BLEGatt=device.connectGatt(mContext,autoConnect,BLEGattCallback);
+        BLEGatt = device.connectGatt(mContext, autoConnect, BLEGattCallback);
         deviceStateListener.onConnecting();
         maxTransimitSize = 20;
         return BLEGatt;
     }
 
-    private void BLESetCharacteristicNotification( BluetoothGatt gatt,UUID ServiceUUID,  UUID CharacterUUID,  UUID DescriptorUUID){
-        BLEService=gatt.getService(ServiceUUID);
-        BLECharacter=BLEService.getCharacteristic(CharacterUUID);
+    public boolean setBLECharacteristicNotification(@NonNull BluetoothGatt gatt, @NonNull String ServiceUUID, @NonNull String CharacterUUID, @NonNull String DescriptorUUID) throws UnsupportedOperationException {
+        return setBLECharacteristicNotification(gatt, UUID.fromString(ServiceUUID), UUID.fromString(CharacterUUID), UUID.fromString(DescriptorUUID));
+    }
 
+    public boolean setBLECharacteristicNotification(@NonNull BluetoothGatt gatt, @NonNull UUID ServiceUUID, @NonNull UUID CharacterUUID, @NonNull UUID DescriptorUUID) throws UnsupportedOperationException {
+        if (!BLEMode) throw new UnsupportedOperationException();
+        BluetoothGattService BLEService = gatt.getService(ServiceUUID);
+        if (BLEService == null) return false;
+        BluetoothGattCharacteristic BLECharacter = BLEService.getCharacteristic(CharacterUUID);
+        if (BLECharacter == null) return false;
         BLEGatt.setCharacteristicNotification(BLECharacter, true);
 
         BluetoothGattDescriptor descriptor = BLECharacter.getDescriptor(DescriptorUUID);
+        if (descriptor == null) return false;
         descriptor.setValue(BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE);
         BLEGatt.writeDescriptor(descriptor);
+        return true;
+    }
+
+    //BLE
+
+    public boolean isConnected() {
+        return BLEMode ? isBLEConnect : connectedThread != null;
+    }
+
+    public boolean writeToBLEDevice(@NonNull BluetoothGatt gatt, @NonNull String ServiceUUID, @NonNull String CharacterUUID, byte[] bytes) throws UnsupportedOperationException {
+        return writeToBLEDevice(gatt, UUID.fromString(ServiceUUID), UUID.fromString(CharacterUUID), bytes);
+    }
+
+    public boolean writeToBLEDevice(@NonNull BluetoothGatt gatt, @NonNull UUID ServiceUUID, @NonNull UUID CharacterUUID, byte[] bytes) throws UnsupportedOperationException {
+        if (!BLEMode) throw new UnsupportedOperationException();
+        if (!isBLEConnect) return false;
+        BluetoothGattService BLEService = gatt.getService(ServiceUUID);
+        if (BLEService == null) return false;
+        BluetoothGattCharacteristic BLECharacter = BLEService.getCharacteristic(CharacterUUID);
+        if (BLECharacter == null) return false;
+        return BLECharacter.setValue(bytes) && gatt.writeCharacteristic(BLECharacter);
+
+    }
+
+    public boolean disconnectDevice(boolean isTriggeredCallback) {
+        if (BLEMode) {
+            BLEGatt.disconnect();
+            isBLEConnect = false;
+            if (isTriggeredCallback) deviceStateListener.onDisconnected();
+            return true;
+        } else return connectedThread.cancel(isTriggeredCallback);
+
     }
 
     public String getBLEDeviceAllServiceAndCharaUuid(BluetoothGatt BLEGatt, Boolean showINLoge) {
@@ -601,116 +570,158 @@ public class BluetoothTool {
             }
             string.append("\n*----------------------------------------------------*");
             AllString.append(string.toString());
-            if (showINLoge)Log.e(TAG, string.toString() );
+            if (showINLoge) Log.e(TAG, string.toString());
         }
         return AllString.toString();
     }
 
-    public boolean isConnected(){
-        return BLEMode?BLECharacter!=null:connectedThread!=null;
-    }
+    public boolean setMaxWritePacketSize(int size) {
 
-
-    public boolean setMaxWritePacketSize(int size){
-
-        if (size>0){
-            if (BLEMode && size>20){
+        if (size > 0) {
+            if (BLEMode && size > 20) {
                 maxTransimitSize = 20;
                 return true;
-            }else {
+            } else {
                 maxTransimitSize = size;
                 return true;
             }
-        }
-        else return false;
-
-    }
-    public boolean setMaxReceivePacketSize(int size){
-        if (size>0){
-            maxReceiveSize=size;return true;}
-        else return false;
+        } else return false;
 
     }
 
-
-
-
-
-    public byte[] readFromDevice(int timeout,TimeUnit timeUnit ) throws TimeoutException{
-        if (BLEMode){
-            if (BLECharacter==null && deviceStateListener!=null ){
-                deviceStateListener.onDisconnected();
-                }
-        }else if (connectedThread==null && deviceStateListener!=null){
-            deviceStateListener.onDisconnected();
-            }
-
-        byte[] result;
-        readTask=new FutureTask<byte[]>(new Callable() {
-            @Override
-            public byte[] call()   {
-                if (BLEMode){
-                    while(!isCharacteristicChanged);//等待数据改变后再读取
-                    isCharacteristicChanged=false;
-                    return BLECharacter.getValue();
-                }
-                else return connectedThread.read();
-            }
-        });
-        try {
-            readTask.run();
-            result = readTask.get(timeout, timeUnit);
-            readTask.cancel(true);
-            return result;
-        } catch (ExecutionException | InterruptedException e) {
-            e.printStackTrace();
-        }
-        return null;
-
-    }
-    private boolean BLEwirte(byte[] bytes){
-        return BLECharacter.setValue(bytes) && BLEGatt.writeCharacteristic(BLECharacter);
-
-    }
-
-    public boolean writeToDevice(byte[] bytes){
-        //判断是否已连接
-        if (BLEMode){
-            if (BLECharacter==null){
-                if (deviceStateListener!=null)deviceStateListener.onDisconnected();
-                return false;
-            }
-        }else if (connectedThread==null){
-            if (deviceStateListener!=null)deviceStateListener.onDisconnected();
-            return false;
-        }
-
-        if (maxTransimitSize==0||bytes.length<=maxTransimitSize)
-            return BLEMode?BLEwirte(bytes):connectedThread.write(bytes);
-        else{//分多次发送
-            for (int i=0;i<(int) Math.ceil(bytes.length / maxTransimitSize);++i){
-                int from=i*maxTransimitSize, to=from+maxTransimitSize;
-                if (to > bytes.length) //防止超出
-                    to = bytes.length;
-
-                if (!(BLEMode?BLEwirte(Arrays.copyOfRange(bytes, from, to)):connectedThread.write(Arrays.copyOfRange(bytes, from, to))))return false;//有一次发送失败就返回假
-
-            }
+    public boolean setMaxReceivePacketSize(int size) {
+        if (size > 0) {
+            maxReceiveSize = size;
             return true;
-
-        }
+        } else return false;
 
     }
+
+    public interface BTStateListener {
+        void onBTOff(); // 蓝牙断开
+
+        void onBTOn(); // 蓝牙打开
+
+        void onBTTurningOFF(); // 蓝牙正在断开
+
+        void onBTTurningON(); // 蓝牙正在打开
+    }
+
+    //连接
+    //Classic BT
+    public interface DeviceStateListener {
+        void onConnected(); // 设备已连接
+
+        void onConnecting(); // 设备正在连接
+
+        void onDisconnected(); // 设备连接断开
+
+    }
+
+    /**
+     * 传统蓝牙接收回调
+     */
+    public interface onClassicRecvListener {
+        void onReceivedData(int dataLength);//接收到数据
+    }
+
+    /**
+     * BLE的Characteristic相关回调
+     */
+    public interface onCharacteristicListener {
+        void onCharacteristicRead(BluetoothGatt gatt, BluetoothGattCharacteristic characteristic, int status);
+
+        void onCharacteristicWrite(BluetoothGatt gatt, BluetoothGattCharacteristic characteristic, int status);
+
+        /**
+         * characteristic改变时回调,当本机Write时不触发
+         *
+         * @param gatt
+         * @param characteristic
+         */
+        void onCharacteristicChanged(BluetoothGatt gatt, BluetoothGattCharacteristic characteristic);//接收到数据
+    }
+
 
 //断开连接
 
-    public boolean disconnectDevice(boolean isTriggeredCallback){
-        if (BLEMode){
-            BLEGatt.disconnect();
-            if (isTriggeredCallback)deviceStateListener.onDisconnected();
+    private class ConnectedThread extends Thread {//收发数据线程
+        BluetoothSocket socket;
+        InputStream inputStream;
+        OutputStream outputStream;
+
+        private ConnectedThread(BluetoothSocket socket, InputStream inputStream, OutputStream outputStream) {
+            this.socket = socket;
+            this.inputStream = inputStream;
+            this.outputStream = outputStream;
+            isConnect = true;
+
+
+        }
+
+        @Override
+        public void run() {
+            deviceStateListener.onConnected();
+            while (isConnect) {
+                try {
+                    int nowAvailable = inputStream.available();
+                    if (nowAvailable == lastAvailable) continue;//相同则跳过
+                    if (nowAvailable > 0 && nowAvailable - lastAvailable > 1) {//大于1是为了等到全部都收到触发回调
+                        classicRecvListener.onReceivedData(nowAvailable);//大于0说明收到数据
+                    }
+                    lastAvailable = nowAvailable;
+
+                } catch (IOException e) {
+                    e.printStackTrace();
+                    isConnect = false;
+                    deviceStateListener.onDisconnected();
+                }
+
+            }
+        }
+
+        public byte[] read() {
+            byte[] buff = new byte[maxReceiveSize];
+            int bytes;
+            try {
+                bytes = inputStream.read(buff);
+                return subBytes(buff, 0, bytes);
+            } catch (IOException e) {
+                e.printStackTrace();
+                isConnect = false;
+                deviceStateListener.onDisconnected();
+                return null;
+            }
+
+        }
+
+
+        public boolean write(byte[] bytes) {
+            try {
+                outputStream.write(bytes);
+            } catch (IOException e) {
+                e.printStackTrace();
+                isConnect = false;
+                deviceStateListener.onDisconnected();
+                return false;
+            }
             return true;
         }
-        else return connectedThread.cancel(isTriggeredCallback);
+
+        public boolean cancel(boolean isTriggeredCallback) {
+            try {
+                inputStream.close();
+                outputStream.close();
+                isConnect = false;
+                if (isTriggeredCallback) deviceStateListener.onDisconnected();
+                socket.close();
+                return true;
+            } catch (IOException e) {
+                e.printStackTrace();
+                return false;
+            }
+        }
+
 
     }
 

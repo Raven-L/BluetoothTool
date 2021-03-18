@@ -1,7 +1,5 @@
 package com.Raven_L.bluetoothtool;
 
-import androidx.appcompat.app.AppCompatActivity;
-
 import android.bluetooth.BluetoothDevice;
 import android.content.Intent;
 import android.os.Bundle;
@@ -12,6 +10,8 @@ import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.CheckBox;
 import android.widget.ListView;
+
+import androidx.appcompat.app.AppCompatActivity;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -37,25 +37,15 @@ public class MainActivity extends AppCompatActivity {
         checkBox =findViewById(R.id.checkbox);
          listView=findViewById(R.id.list);
 
-         checkBox.setOnClickListener(new View.OnClickListener() {
-             @Override
-             public void onClick(View view) {
-                 if (checkBox.isChecked()){
-
-                 }else{
-
-                 }
-             }
-         });
 
          listener=new BluetoothTool.BTScanningListener() {
             @Override
             public void onScanStarted() {
                 Log.e( "onScanStarted: ","开始扫描" );
                 button.setText("扫描中...");
-                list = new ArrayList<String>();
-                deviceList=new ArrayList<>();
-            adapter=new ArrayAdapter<String>(MainActivity.this,R.layout.support_simple_spinner_dropdown_item,list);
+                list = new ArrayList<>();
+                deviceList = new ArrayList<>();
+                adapter = new ArrayAdapter<>(MainActivity.this, R.layout.support_simple_spinner_dropdown_item, list);
 
                 listView.setAdapter(adapter);
 
